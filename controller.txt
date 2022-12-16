@@ -1,0 +1,13 @@
+Informer Components
+    1) Initialise a new shared Informer Factory
+    2) Defining Specific Informers on this Factory for the resources you wish to monitor (such as an informer for a pod, deployment etc)
+    3) Waiting on cache for the initial sync - Waiting for the first List verb to succeed
+    4) Lister - Component of the informer which gets the object from the cache
+
+
+Controller Components
+    1) Creating a new Controller - clientset , lister, hasSynced, queue
+    2) Adding event handler for the informer
+    3) run function for the controller - starting the controller
+    4) process item function - getting item from the queue
+    5) sync deployment function - creating a new service for the deployment
