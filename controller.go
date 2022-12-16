@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
-	appsv1 "k8s.io/client-go/informers/apps/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	appsInformers "k8s.io/client-go/informers/apps/v1"
 	"k8s.io/client-go/kubernetes"
 	appsLister "k8s.io/client-go/listers/apps/v1"
 	"k8s.io/client-go/tools/cache"
@@ -18,7 +22,7 @@ type controller struct {
 }
 
 // function to create a new controller
-func newController(clientset kubernetes.Interface, deploymentInformer appsv1.DeploymentInformer) *controller {
+func newController(clientset kubernetes.Interface, deploymentInformer appsInformers.DeploymentInformer) *controller {
 
 	fmt.Println("Creating a new controller")
 
@@ -29,6 +33,7 @@ func newController(clientset kubernetes.Interface, deploymentInformer appsv1.Dep
 		queue:     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "customController"),
 	}
 
+	// adding handlers for add and delete deployment events
 	deploymentInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    controller.handleAddEvent,
@@ -53,12 +58,56 @@ func (c *controller) run(ch <-chan struct{}) {
 	<-ch // blocking operation
 }
 
+// creates new service for the deployment
+func (c *controller) createServiceForDeployment(ns, name string) error {
+	// get the deployment from lister
+	deployment, err := c.lister.Deployments(ns).Get(name)
+
+	if err != nil {
+		fmt.Println("Error while getting deployment from lister")
+		return err
+	}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name: "http",
+					Port: 80,
+				},
+			},
+			Type:     corev1.ServiceTypeNodePort,
+			Selector: getDeploymentLabels(*deployment),
+		},
+	}
+
+	_, err = c.clientset.CoreV1().Services(ns).Create(context.Background(), svc, metav1.CreateOptions{})
+
+	if err != nil {
+		fmt.Println("Error while creating service: ", err.Error())
+		return err
+	}
+
+	return nil
+}
+
+// gets the labels of the pods in the deployment
+func getDeploymentLabels(deployment appsv1.Deployment) map[string]string {
+	return deployment.Spec.Template.Labels
+}
+
 // handles the add event for deployment resource
 func (c *controller) handleAddEvent(obj interface{}) {
 	fmt.Println("A new deployment was added")
+	c.queue.Add(obj)
 }
 
 // handles the delete event for deployment resource
 func (c *controller) handleDeleteEvent(obj interface{}) {
 	fmt.Println("A deployment was deleted")
+	c.queue.Add(obj)
 }
