@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	appsInformers "k8s.io/client-go/informers/apps/v1"
 	"k8s.io/client-go/kubernetes"
 	appsLister "k8s.io/client-go/listers/apps/v1"
@@ -55,7 +57,50 @@ func (c *controller) run(ch <-chan struct{}) {
 	}
 
 	fmt.Println("Cache synced")
+
+	go wait.Until(c.worker, 1*time.Second, ch)
+
 	<-ch // blocking operation
+}
+
+func (c *controller) worker() {
+	for c.processQueue() {
+
+	}
+}
+
+func (c *controller) processQueue() bool {
+	item, shutdown := c.queue.Get()
+
+	if shutdown {
+		return false
+	}
+
+	key, err := cache.MetaNamespaceKeyFunc(item)
+
+	if err != nil {
+		fmt.Println("Error while getting key: ", err.Error())
+		return false
+	}
+
+	// get namespace and name from key
+	ns, name, err := cache.SplitMetaNamespaceKey(key)
+
+	if err != nil {
+		fmt.Println("Error while getting namespace and name: ", err.Error())
+		return false
+	}
+
+	// create service for deployment
+	err = c.createServiceForDeployment(ns, name)
+
+	if err != nil {
+		fmt.Println("Error while creating service: ", err.Error())
+		return false
+	}
+
+	c.queue.Forget(item)
+	return true
 }
 
 // creates new service for the deployment
