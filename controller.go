@@ -76,10 +76,14 @@ func (c *controller) processQueue() bool {
 		return false
 	}
 
-	key, err := cache.MetaNamespaceKeyFunc(item)
+	// remember to call forget, if not it will be requeued after some time
+	defer c.queue.Done(item) // removes the element from processing queue
 
-	if err != nil {
-		fmt.Println("Error while getting key: ", err.Error())
+	key, ok := item.(string)
+
+	if !ok {
+		// we forget it beause there is no point in it being requeued because the key is invalid
+		c.queue.Forget(item)
 		return false
 	}
 
@@ -100,6 +104,7 @@ func (c *controller) processQueue() bool {
 	}
 
 	c.queue.Forget(item)
+	fmt.Println("Item successfully processed")
 	return true
 }
 
@@ -148,11 +153,23 @@ func getDeploymentLabels(deployment appsv1.Deployment) map[string]string {
 // handles the add event for deployment resource
 func (c *controller) handleAddEvent(obj interface{}) {
 	fmt.Println("A new deployment was added")
-	c.queue.Add(obj)
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	// we store the key(made up of the name and namespace of the resource) instead of the object itself because the time passed when we store the
+	// object and the time when we process the object the state of the object might change
+	c.queue.Add(key)
 }
 
 // handles the delete event for deployment resource
 func (c *controller) handleDeleteEvent(obj interface{}) {
 	fmt.Println("A deployment was deleted")
-	c.queue.Add(obj)
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	c.queue.Add(key)
 }
